@@ -5,3 +5,10 @@ Start with making missing directory
 Start Airflow service
 
 `docker compose up -d`
+
+See Airflow UI at
+
+`http://localhost:8080`
+
+username: airflow
+pw: airflow
