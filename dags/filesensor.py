@@ -2,7 +2,6 @@ from airflow.decorators import task, dag
 from airflow.models.baseoperator import chain
 import pendulum
 from airflow.operators.empty import EmptyOperator
-from airflow.operators.bash import BashOperator
 from airflow.sensors.filesystem import FileSensor
 
 
@@ -11,7 +10,7 @@ def run_after_sensor():
     print("This line should be run after filesensor found")
 
 
-@task(task_id="print_file", trigger_rule="all_done")
+@task(task_id="print_file", trigger_rule="one_success")
 def print_file():
     import pandas as pd
 
@@ -21,7 +20,7 @@ def print_file():
     print(data.head())
 
 
-@task.bash(task_id="moving_file", trigger_rule="all_done")
+@task.bash(task_id="moving_file", trigger_rule="all_success")
 def mv_file():
     import pendulum
 
@@ -35,7 +34,7 @@ def branching():
 
     num_file = len(os.listdir("/opt/airflow/target"))
 
-    if num_file == 3:
+    if num_file >= 3:
         return "remove_oldest_file"
     else:
         return "continue_without_remove"
@@ -44,22 +43,23 @@ def branching():
 def get_oldest_file():
     import os
 
-    create_time_list = []
+    create_time_dict = {}
     root, _, files = os.walk("/opt/airflow/target").__next__()
     for file in files:
         filepath = f"{root}/{file}"
         create_time = os.path.getctime(filepath)
-        create_time_list.append(create_time)
-    oldets_file = sorted(
-        dict(zip(files, create_time_list)).items(), key=lambda x: x[1], reverse=True
-    )[-1][0]
 
-    return f"{root}/{oldets_file}"
+        create_time_dict[filepath] = create_time
+    oldets_file = sorted(create_time_dict.items(), key=lambda x: x[1], reverse=True)[
+        -1
+    ][0]
+
+    return oldets_file
 
 
 @task.bash(task_id="remove_oldest_file")
 def remove_oldest_file(filename):
-    return f"rm {filename}"
+    return f"echo '{filename}' && rm {filename}"
 
 
 @dag(
@@ -76,8 +76,8 @@ def test_file_sensor():
         fs_conn_id="test_filesensor",
         filepath="/opt/airflow/source/test.csv",
         soft_fail=True,
-        poke_interval=30,
-        timeout=30,
+        poke_interval=10,
+        timeout=100,
         mode="poke",
     )
     continue_without_remove = EmptyOperator(
