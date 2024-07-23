@@ -65,7 +65,7 @@ def remove_oldest_file(filename):
 @dag(
     dag_id="test_file_sensor",
     start_date=pendulum.datetime(2024, 7, 19),
-    schedule_interval="0 * * * *",
+    schedule_interval="29 * * * *",
     tags=["sensor"],
     catchup=False,
 )
