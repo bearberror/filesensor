@@ -1,4 +1,4 @@
-from airflow.decorators import task, dag
+from airflow.decorators import task, dag, task_group
 from airflow.models.baseoperator import chain
 import pendulum
 from airflow.operators.empty import EmptyOperator
@@ -35,31 +35,42 @@ def branching():
     num_file = len(os.listdir("/opt/airflow/target"))
 
     if num_file >= 3:
-        return "remove_oldest_file"
+        return "getFile_and_remove.getOldestFileName"
     else:
         return "continue_without_remove"
 
 
+@task(task_id="getOldestFileName")
 def get_oldest_file():
     import os
 
-    create_time_dict = {}
-    root, _, files = os.walk("/opt/airflow/target").__next__()
-    for file in files:
-        filepath = f"{root}/{file}"
-        create_time = os.path.getctime(filepath)
+    try:
+        create_time_dict = {}
+        root, _, files = os.walk("/opt/airflow/target").__next__()
+        for file in files:
+            filepath = f"{root}/{file}"
+            create_time = os.path.getctime(filepath)
 
-        create_time_dict[filepath] = create_time
-    oldets_file = sorted(create_time_dict.items(), key=lambda x: x[1], reverse=True)[
-        -1
-    ][0]
+            create_time_dict[filepath] = create_time
+        oldets_file = sorted(
+            create_time_dict.items(), key=lambda x: x[1], reverse=True
+        )[-1][0]
 
-    return oldets_file
+        return oldets_file
+    except Exception as e:
+        print(e)
 
 
 @task.bash(task_id="remove_oldest_file")
 def remove_oldest_file(filename):
     return f"echo '{filename}' && rm {filename}"
+
+
+@task_group(group_id="getFile_and_remove")
+def getFile_and_remove():
+    oldestFile = get_oldest_file()
+
+    oldestFile >> remove_oldest_file(oldestFile)  # type: ignore
 
 
 @dag(
@@ -83,13 +94,8 @@ def test_file_sensor():
     continue_without_remove = EmptyOperator(
         task_id="continue_without_remove", trigger_rule="all_success"
     )
-    # continue_with_remove = EmptyOperator(
-    #     task_id="continue_with_remove", trigger_rule="all_success"
-    # # )
+
     end = EmptyOperator(task_id="end", trigger_rule="all_done")
-    oldest_file_name = get_oldest_file()
-    # branch = branching()
-    # remove = remove_oldest_file(oldest_file_name)
 
     (
         start
@@ -97,15 +103,14 @@ def test_file_sensor():
         >> run_after_sensor()
         >> branching()
         >> [
+            getFile_and_remove(),
             continue_without_remove,
-            remove_oldest_file(oldest_file_name),
-        ]
+        ]  # type: ignore
         >> print_file()
         >> mv_file()
         >> end
-    )
-    start >> sensor >> end
-    # start >> oldest_file_name >> remove_oldest_file(oldest_file_name)
+    )  # type: ignore
+    start >> sensor >> end  # type: ignore
 
 
 test_file_sensor()
